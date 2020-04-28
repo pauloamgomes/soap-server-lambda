@@ -1,13 +1,13 @@
-'use strict';
+"use strict";
 
-const fs = require('fs');
-const path = require('path');
-const parser = require('fast-xml-parser');
-const log = require('lambda-log');
+const fs = require("fs");
+const path = require("path");
+const parser = require("fast-xml-parser");
+const log = require("lambda-log");
 
-const SoapRequestHandler = require('./SoapRequestHandler.js');
-const SoapResposeHandler = require('./SoapResponseBodyHandler.js');
-const SoapError = require('./SoapError.js');
+const SoapRequestHandler = require("./SoapRequestHandler.js");
+const SoapResposeHandler = require("./SoapResponseBodyHandler.js");
+const SoapError = require("./SoapError.js");
 
 const soapRequestHandler = new SoapRequestHandler();
 const soapReponseHandler = new SoapResposeHandler();
@@ -23,27 +23,26 @@ class SoapServer {
    */
   constructor(config) {
     this.services = {};
-    if (config.services && typeof config.services === 'function') {
+    if (config.services && typeof config.services === "function") {
       Object.assign(this.services, config.services());
       for (const service in this.services) {
         if (Object.prototype.hasOwnProperty.call(this.services, service)) {
           try {
-            // get the
             this.services[service].wsdl = fs
-                .readFileSync(
-                    path.resolve(this.services[service].wsdlPath),
-                    'utf-8',
-                )
-                .toString();
+              .readFileSync(
+                path.resolve(this.services[service].wsdlPath),
+                "utf-8"
+              )
+              .toString();
           } catch (error) {
             throw new Error(
-                'Cannot read the wsdl file: ' + this.services[service].wsdlPath,
+              "Cannot read the wsdl file: " + this.services[service].wsdlPath
             );
           }
           if (parser.validate(this.services[service].wsdl) !== true) {
             throw new Error(
-                'Cannot parse the wsdl file correctly: ' +
-                this.services[service].wsdlPath,
+              "Cannot parse the wsdl file correctly: " +
+                this.services[service].wsdlPath
             );
           }
         }
@@ -63,42 +62,43 @@ class SoapServer {
       log.options.debug = options.debug ? true : false;
     }
     return async (event, context) => {
-      log.debug('Received an event', event);
+      log.debug("Received an event", event);
       // check this service exists
-      if (this.services.hasOwnProperty(event.pathParameters.proxy)) {
-        log.info('Received a request for service', {
-          service: event.pathParameters.proxy,
+      const serviceName = event.path.replace(/\/$/, "").split("/").pop();
+      // Par queryParams
+      const queryParams = {};
+      Object.keys(event.queryStringParameters).forEach((key) => {
+        queryParams[key] = event.queryStringParameters[key];
+      });
+
+      if (this.services.hasOwnProperty(serviceName)) {
+        log.info("Received a request for service", {
+          service: serviceName,
         });
         // get calls
-        if (
-          event.httpMethod === 'GET' &&
-          event.queryStringParameters.hasOwnProperty('wsdl')
-        ) {
-          log.info('Received a request for wsdl', {
-            service: event.pathParameters.proxy,
+        if (event.httpMethod === "GET" && queryParams.hasOwnProperty("wsdl")) {
+          log.info("Received a request for wsdl", {
+            service: serviceName,
           });
-          log.debug(
-              'The wsdl is: ',
-              this.services[event.pathParameters.proxy].wsdl,
-          );
+          log.debug("The wsdl is: ", this.services[serviceName].wsdl);
           // return the wsdl
           return {
-            body: this.services[event.pathParameters.proxy].wsdl,
+            body: this.services[serviceName].wsdl,
             statusCode: 200,
             headers: {
-              'Content-Type': 'application/xml',
+              "Content-Type": "application/xml",
             },
           };
-        } else if (event.httpMethod === 'POST') {
+        } else if (event.httpMethod === "POST") {
           // all post calls to service methods
           let requestOperation;
           try {
             requestOperation = await soapRequestHandler.getOperation(
-                event.body,
+              event.body
             );
             log.debug(
-                'Received a request for an operation: ',
-                requestOperation,
+              "Received a request for an operation: ",
+              requestOperation
             );
           } catch (error) {
             log.error(error);
@@ -106,12 +106,12 @@ class SoapServer {
               body: SoapResposeHandler.fault(error),
               statusCode: error.status ? error.status : 500,
               headers: {
-                'Content-Type': 'application/xml',
+                "Content-Type": "application/xml",
               },
             };
           }
           // get the implementation from the service
-          const serviceimpl = this.services[event.pathParameters.proxy].service;
+          const serviceimpl = this.services[serviceName].service;
           // invoke the method with argument
           let response;
           try {
@@ -122,20 +122,20 @@ class SoapServer {
             }
             if (serviceimpl[requestOperation.operation]) {
               response = await serviceimpl[requestOperation.operation].apply(
-                  null,
-                  params,
+                null,
+                params
               );
-              log.debug('The response received from server', response);
+              log.debug("The response received from server", response);
             } else {
-              throw new SoapError(501, 'Operation didn\'t implemented');
+              throw new SoapError(501, "Operation didn't implemented");
             }
             const responseBody = await soapReponseHandler.success(response);
-            log.debug('Sending the reponse body as: ', responseBody);
+            log.debug("Sending the reponse body as: ", responseBody);
             return {
               body: responseBody,
               statusCode: 200,
               headers: {
-                'Content-Type': 'application/xml',
+                "Content-Type": "application/xml",
               },
             };
           } catch (error) {
@@ -144,21 +144,21 @@ class SoapServer {
               body: await soapReponseHandler.fault(error),
               statusCode: error.status ? error.status : 500,
               headers: {
-                'Content-Type': 'application/xml',
+                "Content-Type": "application/xml",
               },
             };
           }
         }
       } else {
-        log.error('The service not found');
-        log.debug('Available services are:', this.services);
+        log.error("The service not found");
+        log.debug("Available services are:", this.services);
         return {
           body: await soapReponseHandler.fault(
-              new SoapError(404, 'Service not found'),
+            new SoapError(404, "Service not found")
           ),
           statusCode: 404,
           headers: {
-            'Content-Type': 'application/xml',
+            "Content-Type": "application/xml",
           },
         };
       }
