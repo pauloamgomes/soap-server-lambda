@@ -72,15 +72,15 @@ class SoapServer {
     }
     return async (evt, context) => {
       log.debug("Received an event", evt);
+      // Custom parsing of event object
       const event =
         typeof this.eventParser === "function" ? this.eventParser(evt) : evt;
       // Check for custom authorization
       if (typeof this.authorize === "function" && !this.authorize(event)) {
         return {
-          body: await this.handlers.response.fault({
-            status: 403,
-            message: "Access Forbidden",
-          }),
+          body: await this.handlers.response.fault(
+            new SoapError(403, "Access Forbidden")
+          ),
           statusCode: 403,
           headers: {
             "Content-Type": "application/xml",
