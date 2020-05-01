@@ -9,9 +9,6 @@ const SoapRequestHandler = require("./SoapRequestHandler.js");
 const SoapResposeHandler = require("./SoapResponseBodyHandler.js");
 const SoapError = require("./SoapError.js");
 
-const soapRequestHandler = new SoapRequestHandler();
-const soapReponseHandler = new SoapResposeHandler();
-
 /**
  * Soap Server
  */
@@ -23,6 +20,18 @@ class SoapServer {
    */
   constructor(config) {
     this.services = {};
+    this.handlers = {};
+
+    const requestOptions =
+      (config.options && config.options.requestParserOptions) || {};
+    const responseOptions =
+      (config.options && config.options.responseParserOptions) || {};
+
+    this.eventParser = config.options && config.options.eventParser;
+    this.authorize = config.options && config.options.authorize;
+    this.handlers.request = new SoapRequestHandler(requestOptions);
+    this.handlers.response = new SoapResposeHandler(responseOptions);
+
     if (config.services && typeof config.services === "function") {
       Object.assign(this.services, config.services());
       for (const service in this.services) {
@@ -61,8 +70,23 @@ class SoapServer {
     if (options) {
       log.options.debug = options.debug ? true : false;
     }
-    return async (event, context) => {
-      log.debug("Received an event", event);
+    return async (evt, context) => {
+      log.debug("Received an event", evt);
+      const event =
+        typeof this.eventParser === "function" ? this.eventParser(evt) : evt;
+      // Check for custom authorization
+      if (typeof this.authorize === "function" && !this.authorize(event)) {
+        return {
+          body: await this.handlers.response.fault({
+            status: 403,
+            message: "Access Forbidden",
+          }),
+          statusCode: 403,
+          headers: {
+            "Content-Type": "application/xml",
+          },
+        };
+      }
       // check this service exists
       const serviceName = event.path.replace(/\/$/, "").split("/").pop();
       // Par queryParams
@@ -93,7 +117,7 @@ class SoapServer {
           // all post calls to service methods
           let requestOperation;
           try {
-            requestOperation = await soapRequestHandler.getOperation(
+            requestOperation = await this.handlers.request.getOperation(
               event.body
             );
             log.debug(
@@ -103,7 +127,7 @@ class SoapServer {
           } catch (error) {
             log.error(error);
             return {
-              body: SoapResposeHandler.fault(error),
+              body: await this.handlers.response.fault(error),
               statusCode: error.status ? error.status : 500,
               headers: {
                 "Content-Type": "application/xml",
@@ -117,9 +141,11 @@ class SoapServer {
           try {
             // get the input params
             let params;
+
             if (requestOperation.inputs) {
               params = requestOperation.inputs.map((input) => input.value);
             }
+
             if (serviceimpl[requestOperation.operation]) {
               response = await serviceimpl[requestOperation.operation].apply(
                 null,
@@ -129,7 +155,7 @@ class SoapServer {
             } else {
               throw new SoapError(501, "Operation didn't implemented");
             }
-            const responseBody = await soapReponseHandler.success(response);
+            const responseBody = await this.handlers.response.success(response);
             log.debug("Sending the reponse body as: ", responseBody);
             return {
               body: responseBody,
@@ -141,7 +167,7 @@ class SoapServer {
           } catch (error) {
             log.error(error);
             return {
-              body: await soapReponseHandler.fault(error),
+              body: await this.handlers.response.fault(error),
               statusCode: error.status ? error.status : 500,
               headers: {
                 "Content-Type": "application/xml",
@@ -153,7 +179,7 @@ class SoapServer {
         log.error("The service not found");
         log.debug("Available services are:", this.services);
         return {
-          body: await soapReponseHandler.fault(
+          body: await this.handlers.response.fault(
             new SoapError(404, "Service not found")
           ),
           statusCode: 404,
