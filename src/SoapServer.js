@@ -37,12 +37,14 @@ class SoapServer {
       for (const service in this.services) {
         if (Object.prototype.hasOwnProperty.call(this.services, service)) {
           try {
-            this.services[service].wsdl = fs
-              .readFileSync(
-                path.resolve(this.services[service].wsdlPath),
-                "utf-8"
-              )
-              .toString();
+            this.services[service].wsdl = this.services[service].wsdlPath
+              ? fs
+                  .readFileSync(
+                    path.resolve(this.services[service].wsdlPath),
+                    "utf-8"
+                  )
+                  .toString()
+              : this.services[service].wsdlContents;
           } catch (error) {
             throw new Error(
               "Cannot read the wsdl file: " + this.services[service].wsdlPath
